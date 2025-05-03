@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Vault Terminal</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+      color: var(--theme-color, #00FF00);
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    #topbar {
+      display: flex;
+      align-items: center;
+      padding: 5px 10px;
+      background-color: #111;
+      border-bottom: 1px solid var(--theme-color, #00FF00);
+    }
+
+    #colorWheel {
+      margin-right: 10px;
+    }
+
+    #terminal {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .msg {
+      max-width: 70%;
+      border: 1px solid var(--theme-color, #00FF00);
+      padding: 10px;
+      background-color: rgba(0,255,0,0.05);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .user {
+      align-self: flex-end;
+      text-align: right;
+      border-color: #00FF88;
+    }
+
+    .gpt {
+      align-self: flex-start;
+    }
+
+    #inputBar {
+      display: flex;
+      padding: 10px;
+      border-top: 1px solid var(--theme-color, #00FF00);
+    }
+
+    #userInput {
+      flex: 1;
+      background: black;
+      color: var(--theme-color, #00FF00);
+      border: 1px solid var(--theme-color, #00FF00);
+      padding: 10px;
+      font-family: monospace;
+    }
+
+    #sendBtn {
+      background: black;
+      color: var(--theme-color, #00FF00);
+      border: 1px solid var(--theme-color, #00FF00);
+      margin-left: 10px;
+      padding: 10px 20px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="topbar">
+    <input type="color" id="colorWheel" />
+    <span>GPT Terminal</span>
+  </div>
+
+  <div id="terminal">
+    <div class="msg gpt">[System Ready]</div>
+  </div>
+
+  <div id="inputBar">
+    <input type="text" id="userInput" placeholder="Type your message..." />
+    <button id="sendBtn" onclick="sendToGPT()">Send</button>
+  </div>
+
+  <script>
+    const terminal = document.getElementById('terminal');
+    const userInput = document.getElementById('userInput');
+    const colorWheel = document.getElementById('colorWheel');
+    const messages = [];
+
+    colorWheel.addEventListener("input", () => {
+      document.documentElement.style.setProperty('--theme-color', colorWheel.value);
+      localStorage.setItem("themeColor", colorWheel.value);
+    });
+
+    const savedColor = localStorage.getItem("themeColor");
+    if (savedColor) {
+      colorWheel.value = savedColor;
+      document.documentElement.style.setProperty('--theme-color', savedColor);
+    }
+
+    function addMessage(content, type) {
+      const div = document.createElement("div");
+      div.className = "msg " + type;
+      div.innerText = content;
+      terminal.appendChild(div);
+      terminal.scrollTop = terminal.scrollHeight;
+      return div;
+    }
+
+    function glitchTypewriter(el, text, speed = 10) {
+      const charset = "!@#$%^&*()_+=-{}[]|:;<>?/".split("");
+      let index = 0;
+      let revealed = "";
+
+      const interval = setInterval(() => {
+        if (index >= text.length) {
+          el.innerText = text;
+          clearInterval(interval);
+          return;
+        }
+        let glitch = revealed;
+        for (let i = index; i < text.length; i++) {
+          glitch += charset[Math.floor(Math.random() * charset.length)];
+        }
+        el.innerText = glitch;
+        revealed += text[index];
+        index++;
+      }, speed);
+    }
+
+    async function sendToGPT() {
+      const text = userInput.value.trim();
+      if (!text) return;
+
+      const userDiv = addMessage(text, "user");
+      messages.push({ role: "user", content: text });
+      userInput.value = "";
+
+      const botDiv = addMessage("█", "gpt");
+
+      try {
+        const res = await fetch("/.netlify/functions/gpt", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            messages: messages
+          })
+        });
+
+        const data = await res.json();
+        const reply = data.reply || "[No reply]";
+        messages.push({ role: "assistant", content: reply });
+        glitchTypewriter(botDiv, reply, 8);
+      } catch (e) {
+        botDiv.innerText = "[ERROR] " + e.message;
+      }
+    }
+  </script>
+
+</body>
+</html>
