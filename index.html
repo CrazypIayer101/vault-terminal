@@ -13,16 +13,19 @@
       flex-direction: column;
       height: 100vh;
     }
-
     #topbar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       padding: 5px 10px;
       background-color: #111;
-      border-bottom: 1px solid var(--theme-color);
+      border-bottom: 1px solid var(--theme-color, #00FF00);
+      justify-content: space-between;
     }
-
+    #controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
     #terminal {
       flex: 1;
       overflow-y: auto;
@@ -31,53 +34,65 @@
       flex-direction: column;
       gap: 10px;
     }
-
     .msg {
       max-width: 70%;
-      border: 1px solid var(--theme-color);
+      border: 1px solid var(--theme-color, #00FF00);
       padding: 10px;
       background-color: rgba(0,255,0,0.05);
       white-space: pre-wrap;
       word-break: break-word;
     }
-
-    .user { align-self: flex-end; text-align: right; border-color: #00FF88; }
-    .gpt { align-self: flex-start; }
-
+    .user {
+      align-self: flex-end;
+      text-align: right;
+      border-color: #00FF88;
+    }
+    .gpt {
+      align-self: flex-start;
+    }
     #inputBar {
       display: flex;
-      gap: 10px;
       padding: 10px;
-      border-top: 1px solid var(--theme-color);
+      border-top: 1px solid var(--theme-color, #00FF00);
     }
-
-    #userInput, #sendBtn, #exportBtn {
+    #userInput {
+      flex: 1;
       background: black;
-      color: var(--theme-color);
-      border: 1px solid var(--theme-color);
+      color: var(--theme-color, #00FF00);
+      border: 1px solid var(--theme-color, #00FF00);
       padding: 10px;
       font-family: monospace;
     }
-
-    #sendBtn, #exportBtn {
+    #sendBtn {
+      background: black;
+      color: var(--theme-color, #00FF00);
+      border: 1px solid var(--theme-color, #00FF00);
+      margin-left: 10px;
+      padding: 10px 20px;
       cursor: pointer;
     }
-
-    input[type="file"] {
-      color: var(--theme-color);
+    button, label {
+      font-family: monospace;
+      background: black;
+      color: var(--theme-color, #00FF00);
+      border: 1px solid var(--theme-color, #00FF00);
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    input[type="checkbox"] {
+      accent-color: var(--theme-color, #00FF00);
     }
   </style>
 </head>
 <body>
 
   <div id="topbar">
-    <div>
+    <div id="controls">
+      <input type="color" id="colorWheel" />
       <label><input type="checkbox" id="memoryToggle" checked /> Memory</label>
+      <button onclick="exportChat()">Export</button>
     </div>
-    <div>
-      <button id="exportBtn">Export Chat</button>
-      <input type="file" id="imageUpload" accept="image/*">
-    </div>
+    <span>GPT Terminal</span>
   </div>
 
   <div id="terminal">
@@ -86,18 +101,26 @@
 
   <div id="inputBar">
     <input type="text" id="userInput" placeholder="Type your message..." />
-    <button id="sendBtn">Send</button>
+    <button id="sendBtn" onclick="sendToGPT()">Send</button>
   </div>
 
   <script>
     const terminal = document.getElementById('terminal');
     const userInput = document.getElementById('userInput');
-    const sendBtn = document.getElementById('sendBtn');
-    const exportBtn = document.getElementById('exportBtn');
+    const colorWheel = document.getElementById('colorWheel');
     const memoryToggle = document.getElementById('memoryToggle');
-    const imageUpload = document.getElementById('imageUpload');
+    const messages = [];
 
-    let messages = [];
+    colorWheel.addEventListener("input", () => {
+      document.documentElement.style.setProperty('--theme-color', colorWheel.value);
+      localStorage.setItem("themeColor", colorWheel.value);
+    });
+
+    const savedColor = localStorage.getItem("themeColor");
+    if (savedColor) {
+      colorWheel.value = savedColor;
+      document.documentElement.style.setProperty('--theme-color', savedColor);
+    }
 
     function addMessage(content, type) {
       const div = document.createElement("div");
@@ -108,78 +131,86 @@
       return div;
     }
 
-    function exportChat() {
-      const text = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
-      const blob = new Blob([text], { type: "text/plain" });
-      const date = new Date().toISOString().split("T")[0];
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `vaultlog-${date}.txt`;
-      a.click();
-    }
+    function glitchTypewriter(el, text, speed = 10) {
+      const charset = "!@#$%^&*()_+=-{}[]|:;<>?/".split("");
+      let index = 0;
+      let revealed = "";
 
-    exportBtn.addEventListener("click", exportChat);
+      const interval = setInterval(() => {
+        if (index >= text.length) {
+          el.innerText = text;
+          clearInterval(interval);
+          return;
+        }
+        let glitch = revealed;
+        for (let i = index; i < text.length; i++) {
+          glitch += charset[Math.floor(Math.random() * charset.length)];
+        }
+        el.innerText = glitch;
+        revealed += text[index];
+        index++;
+      }, speed);
+    }
 
     async function sendToGPT() {
       const text = userInput.value.trim();
       if (!text) return;
-      if (text === "/clear") return terminal.innerHTML = '', messages = [];
-      if (text === "/help") return addMessage("Commands:\n/clear – clear chat\n/help – list commands", "gpt");
+
+      // Slash command handler
+      if (text.startsWith("/")) {
+        handleSlashCommand(text);
+        userInput.value = "";
+        return;
+      }
 
       const userDiv = addMessage(text, "user");
-      const imageFile = imageUpload.files[0];
-
-      messages.push({ role: "user", content: text });
+      if (memoryToggle.checked) messages.push({ role: "user", content: text });
+      userInput.value = "";
 
       const botDiv = addMessage("█", "gpt");
 
       try {
-        const headers = {
-          Authorization: "Bearer YOUR_API_KEY_HERE"
-        };
-
-        let body;
-        let endpoint = "https://api.openai.com/v1/chat/completions";
-
-        if (imageFile) {
-          const formData = new FormData();
-          formData.append("file", imageFile);
-          formData.append("model", "gpt-4-vision-preview");
-          formData.append("messages", JSON.stringify([
-            { role: "system", content: "You are an image analysis assistant." },
-            { role: "user", content: text }
-          ]));
-          body = formData;
-        } else {
-          headers["Content-Type"] = "application/json";
-          body = JSON.stringify({
-            model: "gpt-4-0125-preview",
-            messages: memoryToggle.checked ? messages : [messages[messages.length - 1]]
-          });
-        }
-
-        const res = await fetch(endpoint, {
+        const res = await fetch("/.netlify/functions/gpt", {
           method: "POST",
-          headers,
-          body
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            messages: memoryToggle.checked ? messages : [{ role: "user", content: text }]
+          })
         });
 
         const data = await res.json();
-        const reply = data.choices?.[0]?.message?.content || "[No reply]";
-        messages.push({ role: "assistant", content: reply });
-        botDiv.innerText = reply;
+        const reply = data.reply || "[No reply]";
+        if (memoryToggle.checked) messages.push({ role: "assistant", content: reply });
+        glitchTypewriter(botDiv, reply, 8);
       } catch (e) {
         botDiv.innerText = "[ERROR] " + e.message;
       }
-
-      userInput.value = "";
-      imageUpload.value = "";
     }
 
-    sendBtn.addEventListener("click", sendToGPT);
-    userInput.addEventListener("keydown", e => {
-      if (e.key === "Enter") sendToGPT();
-    });
+    function exportChat() {
+      const text = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
+      const blob = new Blob([text], { type: "text/plain" });
+      const link = document.createElement("a");
+      const date = new Date().toISOString().split("T")[0];
+      link.href = URL.createObjectURL(blob);
+      link.download = `vault_terminal_export_${date}.txt`;
+      link.click();
+    }
+
+    function handleSlashCommand(command) {
+      const div = addMessage(`Executing command: ${command}`, "gpt");
+      // You can extend this later with /help, /clear, etc.
+      if (command === "/clear") {
+        terminal.innerHTML = "";
+        messages.length = 0;
+        addMessage("[System Cleared]", "gpt");
+      } else {
+        addMessage("[Unknown command]", "gpt");
+      }
+    }
   </script>
+
 </body>
 </html>
